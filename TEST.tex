@@ -1,0 +1,161 @@
+\documentclass{article}
+
+% AMS 595 / DCS 525 final project proposal (November 1, 2026).
+% Place this file alongside the ORIGINAL, UNMODIFIED neurips_2026.sty
+% from the official NeurIPS 2026 LaTeX template.
+% Do not modify the style file, margins, fonts, or spacing.
+\usepackage{neurips_2026}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{url}
+
+\title{Learning One-Dimensional Heat Diffusion with a Fourier Neural Operator}
+
+% NeurIPS submission mode may anonymize the author block.  All four names
+% also appear in the team contributions table, as required by AMS 595.
+\author{William Leland, Alexander Zabierowski,\\ Brandon Choi, and Andrew Deutsch}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The one-dimensional heat equation describes the diffusion of temperature and provides a tractable setting for testing data-driven approximations of partial differential equations. Traditional numerical methods compute a solution for each specified initial condition, while neural operators seek to learn mappings between entire functions. We propose to investigate whether a compact Fourier Neural Operator (FNO) can predict the temperature distribution of a one-dimensional rod at a fixed future time from an unseen initial temperature profile. The rod will have constant thermal diffusivity and zero-temperature boundary conditions. We will generate synthetic initial conditions as random combinations of sine functions and compute exact target solutions using the corresponding Fourier-series formula. We will also implement a finite-difference solver and verify its convergence against the analytical solutions. An FNO will be trained on sampled input-output function pairs and compared with a multilayer perceptron (MLP) baseline using identical data splits. We will assess mean squared error, relative $L^2$ error, visual agreement with exact solutions, and training time. Additional experiments will study sensitivity to training-set size and initial conditions containing frequencies absent from training. We expect the FNO to capture the smoothing behavior of diffusion on familiar inputs, while revealing meaningful limitations in generalization. The goal is a reproducible comparison of operator learning and conventional numerical approximation, rather than a novel architecture or a claim of superior performance.
+\end{abstract}
+
+\section{Introduction and Motivation}
+The heat equation models diffusion and is a fundamental example of a time-dependent partial differential equation (PDE). Given an initial temperature distribution, a numerical solver approximates how the distribution evolves. When many initial conditions must be considered, the corresponding numerical problems must ordinarily be solved repeatedly. A learned \emph{solution operator} instead maps an input function to an output function, with the aim of approximating many such solutions after a training phase.
+
+Neural operators extend machine learning from mappings between finite-dimensional vectors to mappings between function spaces \citep{kovachki2023neural}. The Fourier Neural Operator (FNO) applies learned transformations in the Fourier domain and has been studied for several PDE families \citep{li2021fourier}. Our project uses a deliberately simpler one-dimensional setting: a linear diffusion problem with an available analytical solution. This makes it possible to measure neural-network errors independently of numerical-solver errors and examine whether the network learns the frequency-dependent damping that underlies heat diffusion. Our contribution will be a controlled, educational comparison of an FNO, an MLP, and a finite-difference approximation for this specific task, not a new neural-operator architecture.
+
+\section{Objectives and Scope}
+Our central goal is to approximate the mapping from a sampled initial temperature profile to its temperature profile at one fixed later time. The planned objectives are: (1) derive and evaluate analytical Fourier-series solutions; (2) implement and verify a finite-difference heat solver; (3) build a reproducible synthetic dataset; (4) train a small one-dimensional FNO and an MLP baseline; and (5) compare held-out accuracy, computation time, data efficiency, and sensitivity to previously unseen spatial frequencies.
+
+We will study a one-dimensional unit-length rod with constant diffusivity, homogeneous Dirichlet boundary conditions, and a fixed prediction time. Variable coefficients, noisy measurements, two-dimensional domains, forecasting at arbitrary times, and physical deployment are outside the scope. These restrictions allow us to focus on learning behavior and numerical verification within the available project period.
+
+\section{Methodology and Approach}
+\subsection{Mathematical model and exact reference solutions}
+Let $u(x,t)$ be the temperature on $0\leq x\leq 1$. With thermal diffusivity $\alpha=0.1$, we consider
+\begin{equation}
+\frac{\partial u}{\partial t}=\alpha\frac{\partial^2u}{\partial x^2},\qquad
+u(0,t)=u(1,t)=0,\qquad u(x,0)=f(x).
+\label{eq:heat}
+\end{equation}
+For prediction time $T=0.2$, define the solution operator $\mathcal{G}_T:f\mapsto u(\cdot,T)$. Training initial conditions will be sampled from
+\begin{equation}
+f(x)=\sum_{k=1}^{5}a_k\sin(k\pi x),\qquad
+u(x,T)=\sum_{k=1}^{5}a_k e^{-\alpha(k\pi)^2T}\sin(k\pi x),
+\label{eq:exact}
+\end{equation}
+where the coefficients $a_k$ vary across samples. The exponential factor shows that larger spatial frequencies decay faster. Equation~\eqref{eq:exact} will serve as the primary reference for model training and evaluation.
+
+\subsection{Finite-difference verification}
+We will implement a forward-time, centered-space finite-difference scheme \citep{leveque2007finite}:
+\begin{equation}
+\begin{aligned}
+u_i^{n+1}&=(1-2r)u_i^n+r(u_{i-1}^n+u_{i+1}^n),\\
+r&=\frac{\alpha\Delta t}{(\Delta x)^2}.
+\end{aligned}
+\label{eq:ftcs}
+\end{equation}
+We will enforce $u_0^n=u_{N-1}^n=0$ and choose $\Delta t$ so that $r\leq 1/2$. Refining the mesh and time step will allow us to check the solver against Equation~\eqref{eq:exact}. The finite-difference solver will be a separate numerical benchmark and verification exercise; it will not produce the learning targets.
+
+\subsection{FNO architecture, baseline, and training}
+Each initial function will be evaluated at 64 equally spaced spatial coordinates, including both endpoints. The FNO will take the temperature samples together with their coordinates and output 64 temperatures at time $T$. Our starting configuration will use three one-dimensional Fourier layers, 12 retained Fourier modes, and 32 hidden channels. We plan to use the open-source \texttt{neuraloperator} implementation with PyTorch \citep{kossaifi2025library}. Because an FFT-based Fourier layer uses periodic spectral structure while our PDE has fixed-zero endpoints, we will enforce zero at the predicted endpoints and inspect errors near the boundaries.
+
+We will train with mean squared error (MSE), Adam optimization, an initial learning rate of $10^{-3}$, mini-batches, and validation-based early stopping or epoch selection. A standard MLP will map the same 64 input temperatures to 64 output temperatures. Both learned models will use the same train/validation/test partitions; architecture size, parameter counts, and training times will be reported to make the comparison interpretable. Hyperparameters may be adjusted using validation data only.
+
+\begin{figure}[t]
+\centering
+\setlength{\fboxsep}{5pt}
+\fbox{\parbox{0.25\linewidth}{\centering Random sine-series\\initial profiles}}
+\ $\longrightarrow$\ 
+\fbox{\parbox{0.25\linewidth}{\centering Exact heat-equation\\target profiles}}
+\ $\longrightarrow$\ 
+\fbox{\parbox{0.25\linewidth}{\centering Train FNO and MLP;\\test predictions}}
+\caption{Planned data and learning workflow. A separate finite-difference solver will be verified against the exact solutions.}
+\label{fig:workflow}
+\end{figure}
+
+\section{Dataset and Experimental Setup}
+We will create a synthetic dataset, so no external heat-equation dataset is required. For each example, the five coefficients $a_k$ in Equation~\eqref{eq:exact} will be drawn independently from $\mathrm{Uniform}[-1,1]$ using recorded random seeds. The input $f(x)$ and exact target $u(x,T)$ will be evaluated on the same 64-point grid. We plan to generate 1,000 function pairs and divide them into 800 training, 100 validation, and 100 held-out test samples. Splitting will occur by entire function pair, not by grid point, to avoid leakage between datasets.
+
+Preprocessing will involve verifying endpoint values, converting arrays to tensors, and, if useful, normalizing using statistics estimated only from training samples. Augmentation will consist of drawing additional independent coefficient vectors rather than transforming existing temperature curves. We will additionally construct a held-out stress-test set containing sixth through eighth sine modes that never appear in training. Because these modes decay rapidly by $T=0.2$, we will examine both absolute and relative errors and interpret near-zero target profiles cautiously. All datasets, random seeds, and configurations will be documented to support reproducibility.
+
+\section{Expected Results and Evaluation Plan}
+We hypothesize that the FNO will approximate diffusion accurately for unseen combinations of the first five sine modes and reproduce the characteristic smoothing of high-frequency content. We do not assume it will outperform the MLP: for this low-dimensional input family, a compact fully connected network may be competitive. We also expect that changes in training-set size and out-of-distribution frequency content will reveal differences in the models' generalization.
+
+The primary metric will be the relative discrete $L^2$ error for predicted and exact sampled profiles:
+\begin{equation}
+E_{\mathrm{rel}}=\frac{\lVert\widehat{\boldsymbol{u}}-\boldsymbol{u}\rVert_2}
+{\lVert\boldsymbol{u}\rVert_2+\varepsilon},\qquad \varepsilon=10^{-8}.
+\label{eq:error}
+\end{equation}
+We will also report MSE, the distribution of per-example errors, training time, and representative plots of predicted versus exact profiles. We will repeat training on subsets of approximately 200, 500, and 800 functions while holding validation and test sets fixed. If time allows, we will compare random seeds. We will separately evaluate the finite-difference solver through numerical error versus grid refinement. Successful completion means an interpretable and reproducible evaluation of when each approximation works and where it fails, rather than a predetermined numerical performance target.
+
+\section{Timeline}
+\begin{table}[h]
+\centering
+\caption{Proposed seven-week schedule and planned deliverables.}
+\begin{tabular}{@{}p{0.16\linewidth}p{0.76\linewidth}@{}}
+\toprule
+\textbf{Weeks} & \textbf{Tasks and deliverables}\\
+\midrule
+1--2 & Derive the exact solution; implement and verify the finite-difference solver; generate and split the synthetic dataset.\\
+3--4 & Prepare training pipelines; train the MLP baseline and initial FNO; review validation loss and tune training settings.\\
+5--6 & Evaluate held-out errors; compare training-set sizes; run higher-frequency stress tests; investigate limitations.\\
+7 & Consolidate plots and results; check reproducibility; complete the report and presentation.\\
+\bottomrule
+\end{tabular}
+\label{tab:timeline}
+\end{table}
+
+\section{Team Contributions}
+The following division of work is \emph{proposed} and will be confirmed by the four members before submission. All members will participate in interpreting results and reviewing the final report.
+\begin{table}[h]
+\centering
+\caption{Proposed division of responsibilities among the four team members.}
+\begin{tabular}{@{}p{0.27\linewidth}p{0.25\linewidth}p{0.40\linewidth}@{}}
+\toprule
+\textbf{Member} & \textbf{Primary role} & \textbf{Planned contributions}\\
+\midrule
+William Leland & Mathematical and numerical modeling & Exact heat-equation solution, finite-difference solver, convergence checks.\\
+Alexander Zabierowski & Fourier neural operator & FNO implementation, model training, hyperparameter tuning.\\
+Brandon Choi & Dataset and baseline & Data generation, preprocessing, train/test partitions, MLP baseline.\\
+Andrew Deutsch & Evaluation and presentation & Error analysis, stress tests, visualizations, report and presentation integration.\\
+\bottomrule
+\end{tabular}
+\label{tab:roles}
+\end{table}
+
+\begin{thebibliography}{9}
+
+\bibitem[Kovachki et~al.(2023)]{kovachki2023neural}
+Nikola Kovachki, Zongyi Li, Burigede Liu, Kamyar Azizzadenesheli,
+Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar.
+\newblock Neural operator: Learning maps between function spaces with applications to PDEs.
+\newblock \emph{Journal of Machine Learning Research}, 24(89):1--97, 2023.
+
+\bibitem[Li et~al.(2021)]{li2021fourier}
+Zongyi Li, Nikola Kovachki, Kamyar Azizzadenesheli, Burigede Liu,
+Kaushik Bhattacharya, Andrew Stuart, and Anima Anandkumar.
+\newblock Fourier neural operator for parametric partial differential equations.
+\newblock In \emph{International Conference on Learning Representations (ICLR)}, 2021.
+
+\bibitem[LeVeque(2007)]{leveque2007finite}
+Randall J. LeVeque.
+\newblock \emph{Finite Difference Methods for Ordinary and Partial Differential Equations: Steady-State and Time-Dependent Problems}.
+\newblock Society for Industrial and Applied Mathematics, 2007.
+
+\bibitem[Kossaifi et~al.(2025)]{kossaifi2025library}
+Jean Kossaifi, Nikola Kovachki, Zongyi Li, David Pitt, Miguel Liu-Schiaffini,
+Robert Joseph George, Boris Bonev, Kamyar Azizzadenesheli,
+Julius Berner, Valentin Duruisseaux, and Anima Anandkumar.
+\newblock A library for learning neural operators.
+\newblock arXiv:2412.10354, 2025. \url{https://github.com/neuraloperator/neuraloperator}.
+
+\end{thebibliography}
+
+\end{document}

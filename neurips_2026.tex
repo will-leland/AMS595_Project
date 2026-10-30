@@ -1,0 +1,119 @@
+\documentclass{article}
+
+% AMS 595 / DCS 525 final-project proposal.
+% IMPORTANT: Import this file INTO the official NeurIPS 2026 Overleaf
+% template, alongside the ORIGINAL, UNMODIFIED neurips_2026.sty.
+% Download the official kit from:
+% https://media.neurips.cc/Conferences/NeurIPS2026/Formatting_Instructions_For_NeurIPS_2026.zip
+% Do not alter the template's margins, fonts, spacing, or style file.
+\usepackage{neurips_2026}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{url}
+\usepackage{hyperref}
+
+\title{Learning One-Dimensional Heat Diffusion with a Fourier Neural Operator}
+
+\author{William Leland & Alexander Zabierowski & Brandon Choi & Andrew Deutsch \\
+  Stony Brook University \\
+  \texttt{william.leland@stonybrook.edu & alexander.zabierowski@stonybrook.edu & brandon.choi@stonybrook.edu}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The one-dimensional heat equation describes how temperature evolves through diffusion and provides an accessible test problem for computational modeling. Conventional numerical methods approximate its solutions by discretizing space and time, whereas neural operators aim to learn mappings between entire functions. This project will investigate whether a small Fourier Neural Operator (FNO) can predict the temperature distribution of a rod at a fixed future time from an unseen initial temperature distribution. We will consider a rod with constant thermal diffusivity and fixed-zero endpoint temperatures. Initial conditions will be generated as random combinations of sine functions, with reference solutions computed from the corresponding analytical Fourier-series formula. A finite-difference solver will be implemented separately to study numerical approximation and validate the reference calculations. The FNO will be trained on sampled input-output pairs and compared with a conventional multilayer perceptron baseline. Performance will be assessed using mean squared error, relative $L^2$ error, and plots comparing predicted and reference temperature curves. Additional experiments will examine changes in training-set size and performance on initial conditions containing previously unseen frequencies. We expect the FNO to learn the dominant smoothing behavior of heat diffusion, while identifying limitations in its accuracy and generalization. The project is intended to develop practical understanding of partial differential equations (PDEs), numerical simulation, and operator learning rather than to establish a new neural-network architecture.
+\end{abstract}
+
+\section{Introduction and Motivation}
+Heat diffusion is a useful example of a physical process modeled by a partial differential equation (PDE). A conventional solver computes a temperature field for a specified initial condition; obtaining solutions for many different initial conditions requires solving the problem repeatedly. Learning a \emph{solution operator} offers a different perspective: a model receives a function describing an initial state and predicts a function describing a later state. Neural operators formalize this function-to-function learning task \citep{kovachki2023neural}, and Fourier Neural Operators (FNOs) implement integral-like transformations efficiently in the frequency domain \citep{li2021fourier}.
+
+The specific question is whether a compact FNO can learn the smoothing effect of one-dimensional diffusion from synthetic examples, and how its errors depend on training data and frequency content. Because the heat equation admits an exact solution for the chosen family of initial conditions, it is possible to separate learning errors from numerical-solver errors. This makes the project feasible while offering direct connections among mathematical modeling, computational algorithms, and machine learning.
+
+\section{Objectives and Scope}
+The primary objective is to learn the mapping from an initial temperature profile to its temperature profile at a fixed later time. Specifically, the project will (i) implement and test an explicit finite-difference solver; (ii) generate a reproducible dataset of initial and final temperature functions; (iii) train a small one-dimensional FNO; (iv) compare its predictions with an elementary multilayer perceptron (MLP); and (v) investigate accuracy on unseen profiles, including profiles with higher frequencies than those used for training.
+
+The scope is restricted to a one-dimensional rod, constant diffusivity, homogeneous Dirichlet boundary conditions, and a single prediction time. Two-dimensional geometries, varying material coefficients, noisy experimental measurements, and claims of real-time physical deployment are outside the project scope.
+
+\section{Methodology and Approach}
+\subsection{Mathematical formulation and reference solutions}
+Let $u(x,t)$ denote temperature on a rod occupying $0\leq x\leq 1$. With thermal diffusivity $\alpha=0.1$, we consider
+\begin{equation}
+\frac{\partial u}{\partial t}=\alpha\frac{\partial^2u}{\partial x^2},\quad
+u(0,t)=u(1,t)=0,\quad u(x,0)=f(x).
+\label{eq:heat}
+\end{equation}
+The solution operator at time $T=0.2$ is $\mathcal G_T:f\mapsto u(\cdot,T)$. We will sample initial conditions of the form
+\begin{equation}
+f(x)=\sum_{k=1}^{5}a_k\sin(k\pi x),\qquad
+u(x,T)=\sum_{k=1}^{5}a_k e^{-\alpha(k\pi)^2T}\sin(k\pi x).
+\label{eq:exact}
+\end{equation}
+Equation~\eqref{eq:exact} follows by differentiating each sine term twice with respect to $x$; it shows directly that higher spatial frequencies decay more rapidly. It will provide the primary ground truth for training and evaluation.
+
+\subsection{Numerical simulation and verification}
+For numerical practice, we will also implement the forward-time, centered-space finite-difference update
+\begin{equation}
+u_i^{n+1}=u_i^n+r\bigl(u_{i+1}^n-2u_i^n+u_{i-1}^n\bigr),\qquad
+r=\frac{\alpha\Delta t}{(\Delta x)^2}.
+\label{eq:ftcs}
+\end{equation}
+We will use a time step satisfying $r\leq 1/2$, keep endpoint temperatures fixed at zero, and check that the numerical solution approaches the analytical solution as the spatial and temporal steps are refined \citep{leveque2007finite}. This solver is a numerical reference and a modeling exercise, rather than an alternative trained neural-network model.
+
+\subsection{Fourier neural operator and model training}
+Each initial profile will be sampled on a grid of 64 equally spaced positions, including the endpoints. The FNO will take the sampled initial profile (and position coordinates) as input and predict 64 temperatures at time $T$. A preliminary architecture will use three one-dimensional Fourier layers, 12 retained modes, and 32 hidden channels, subject to adjustment based on validation performance. To respect the fixed endpoint temperatures, the predicted values at the two endpoints will be set to zero; nonperiodic-boundary behavior in the interior will be evaluated explicitly. We will use the open-source \texttt{neuraloperator} implementation of FNO \citep{neuraloperatorsoftware} with PyTorch.
+
+We will minimize mean squared error using Adam with an initial learning rate of $10^{-3}$, mini-batches, and validation-based selection of the training epoch. A small MLP mapping 64 input temperatures to 64 outputs will serve as the learned-model baseline. Both models will receive the same training, validation, and test splits. Model capacity and training times will be recorded to contextualize any performance differences; we do not assume that the FNO will outperform the MLP.
+
+\begin{figure}[t]
+\centering
+\setlength{\fboxsep}{5pt}
+\fbox{\parbox{0.26\linewidth}{\centering Random sine-series\\initial conditions}}
+\ $\longrightarrow$\ 
+\fbox{\parbox{0.26\linewidth}{\centering Exact heat-equation\\reference solutions}}
+\ $\longrightarrow$\ 
+\fbox{\parbox{0.26\linewidth}{\centering Train FNO and MLP;\\evaluate on held-out data}}
+\caption{Proposed workflow. A separate finite-difference implementation will be checked against the analytical solutions before model training.}
+\label{fig:workflow}
+\end{figure}
+
+\section{Dataset and Experimental Setup}
+The dataset will be generated specifically for this project, rather than downloaded from an external repository. For each example, the five coefficients $a_k$ in Equation~\eqref{eq:exact} will be drawn independently from a uniform distribution on $[-1,1]$ with a recorded random seed. Inputs and targets will be evaluated on the same 64-point spatial grid at times $0$ and $T=0.2$, respectively. The data will contain 1,000 initial-condition/solution pairs, divided by \emph{whole functions} into 800 training examples, 100 validation examples, and 100 held-out test examples. We will not place grid points from the same initial condition into different splits, since this would leak information across examples.
+
+Preprocessing will consist of sampling the functions on the uniform grid, checking their zero endpoint values, and converting them to model tensors. Any input scaling, if used, will be estimated using only the training set and applied unchanged to validation and test data. Data augmentation will consist of creating additional independently sampled coefficient vectors; no image-style augmentation is planned. A separate stress-test set will include initial conditions with sixth through eighth sine modes so that we can study generalization beyond the training frequencies without claiming such behavior is guaranteed.
+
+\section{Expected Results and Evaluation Plan}
+The central hypothesis is that the FNO will predict the smooth temperature profiles at time $T$ accurately for unseen combinations of the training frequencies. We expect prediction error to increase for certain out-of-distribution frequency mixtures, although the direction and magnitude of differences between the FNO and MLP must be determined experimentally. Training-set-size experiments will use subsets of approximately 200, 500, and 800 training functions, with the same validation and test sets. We will also compare results across multiple random seeds if time permits.
+
+For a predicted sampled solution $\widehat{\boldsymbol u}$ and reference $\boldsymbol u$, the primary error metric will be the relative discrete $L^2$ error,
+\begin{equation}
+E_{\mathrm{rel}}=\frac{\lVert\widehat{\boldsymbol u}-\boldsymbol u\rVert_2}{\lVert\boldsymbol u\rVert_2+\varepsilon},\qquad \varepsilon=10^{-8},
+\label{eq:error}
+\end{equation}
+with mean squared error as a secondary metric. We will report average and distributional test errors, compare predicted and exact temperature curves, and examine boundary behavior and representative failures. The numerical solver will be assessed separately through error-versus-grid-refinement comparisons. Success will mean producing a reproducible learning pipeline, quantifying where the learned approximation works and fails, and explaining observed results through the heat equation's frequency-dependent decay; it does not require beating established numerical methods in speed or accuracy.
+
+\section{Timeline}
+\begin{table}[H]
+\centering
+\caption{Seven-week plan, following the proposal's suggested progression.}
+\begin{tabular}{@{}p{0.17\linewidth}p{0.74\linewidth}@{}}
+\toprule
+\textbf{Week(s)} & \textbf{Planned tasks and deliverables} \\
+\midrule
+1--2 & Derive the heat equation solution for sine initial conditions; implement and test the finite-difference solver; generate and split the dataset. \\
+3--4 & Prepare training code; fit the MLP baseline and an initial FNO; inspect loss curves and tune basic training settings. \\
+5--6 & Evaluate test errors and plotted solutions; vary training-set size; test higher-frequency initial conditions; document limitations. \\
+7 & Organize results, check reproducibility, complete the written report, and prepare the presentation. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Team Contributions (If Applicable)}
+\textbf{Provisional plan: individual project.} The student would be responsible for the mathematical formulation, numerical solver, dataset generation, model training, evaluation, and report. If a group is confirmed instead, this paragraph will be replaced with a table listing each member, role, and planned contribution. Team registration must be completed separately in the course spreadsheet.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+\end{document}

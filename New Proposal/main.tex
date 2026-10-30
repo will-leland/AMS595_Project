@@ -1,0 +1,211 @@
+\documentclass{article}
+% AMS 595 / DCS 525 Final Project Proposal (November 2026)
+% IMPORTANT: This document must be compiled in the OFFICIAL NeurIPS 2026
+% template with its ORIGINAL, UNMODIFIED neurips_2026.sty. Do not alter
+% margins, font sizes, or spacing. See the README for Overleaf instructions.
+% The preprint option displays the student's name for a course submission.
+% If the instructor specifically requests anonymous review, remove [preprint].
+\usepackage[preprint]{neurips_2026}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{url}
+\usepackage{hyperref}
+
+\title{Learning Linear and Nonlinear PDE Solution Operators:\\A Comparison of One-Dimensional Heat and Viscous Burgers' Equations}
+\author{Brandon Choi, Andrew Deutsch, William Leland, Alexander Zabierowski \\
+  Stony Brook University \\
+  \texttt{alexander.zabierowski@stonybrook.edu}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Partial differential equations (PDEs) describe physical processes such as heat diffusion and fluid motion, but numerical solvers must generally be run again when initial conditions change. Neural operators offer an alternative by learning mappings between entire input and output functions. This project proposes a controlled comparison of Fourier Neural Operators (FNOs) on two related one-dimensional PDEs: the linear heat equation and the nonlinear viscous Burgers' equation. Both models contain diffusion, while Burgers' equation additionally includes nonlinear transport, making it a useful intermediate step toward more complex fluid models. Synthetic initial conditions will be generated from random combinations of sine functions. Analytical Fourier-series solutions will provide reference data for the heat equation, while a grid-refined, conservative finite-difference solver will generate reference solutions for Burgers' equation. Separate small FNOs will be trained to predict solution profiles at a fixed future time, with multilayer perceptrons serving as learned baselines. Performance will be assessed using mean squared error, relative $L^2$ error, visualization, and tests involving higher-frequency initial conditions. We expect accurate predictions on held-out data, with potentially greater errors for the nonlinear problem and out-of-distribution inputs. The central outcome will be a reproducible investigation of how PDE structure influences numerical modeling and operator learning; a full Navier--Stokes implementation is reserved for future work.
+\end{abstract}
+
+\section{Introduction and Motivation}
+Many scientific models use PDEs to describe how a state changes in space and time. The one-dimensional heat equation models diffusion of temperature, while the viscous Burgers' equation combines diffusion with nonlinear transport. For a fixed initial condition, conventional numerical methods approximate the time-evolving solution on a grid; repeating this calculation for many initial conditions can be costly. In contrast, a \emph{solution operator} takes an initial function as input and returns a solution function at a later time. Neural operators are designed to learn mappings between function spaces \citep{kovachki2023neural}. Fourier Neural Operators (FNOs) accomplish part of this learning through transformations of Fourier coefficients \citep{li2021fourier}.
+
+Prior FNO research has studied Burgers' and Navier--Stokes equations as operator-learning benchmarks \citep{li2021fourier}. Consequently, this proposal does not claim a novel architecture or a previously unstudied PDE. Its educational contribution is a deliberately small, matched comparison that isolates one mathematical distinction: the presence or absence of the nonlinear transport term. It also connects the FNO's frequency-domain computations to the known decay of Fourier modes under heat diffusion. The aim is to learn when a data-driven surrogate reproduces the behavior of a conventional PDE model, where it fails, and why.
+
+\section{Objectives and Scope}
+The primary research question is: \emph{How does adding nonlinear transport to a one-dimensional diffusion equation affect the accuracy and generalization of a small FNO trained to approximate the solution operator?} The project objectives are to (1) derive and verify heat-equation reference solutions; (2) implement and validate numerical simulations of viscous Burgers' equation; (3) generate reproducible datasets of initial and final solution functions for both PDEs; (4) train separate FNOs and conventional multilayer perceptron (MLP) baselines; and (5) measure errors, sensitivity to training-set size, and generalization to unfamiliar frequencies.
+
+The required scope is \textbf{one spatial dimension, fixed coefficients, zero Dirichlet endpoint conditions, and one final prediction time}. Two-dimensional equations, variable geometries, turbulence modeling, parameter-dependent viscosity, and training a coupled Navier--Stokes solver are excluded. The project concerns learning and evaluating numerical models, not demonstrating that neural operators are universally faster or more accurate than established solvers.
+
+\section{Methodology and Approach}
+\subsection{Mathematical formulations and the connection between PDEs}
+Let $x\in[0,1]$ and $t\in[0,T]$, where $T=0.2$. The \textbf{heat equation} is
+\begin{equation}
+ u_t=\alpha u_{xx},\qquad \alpha=0.1,\qquad
+ u(0,t)=u(1,t)=0,\qquad u(x,0)=f(x).
+ \label{eq:heat}
+\end{equation}
+The \textbf{viscous Burgers' equation} is
+\begin{equation}
+ v_t+v\,v_x=\nu v_{xx},\qquad \nu=0.02,\qquad
+ v(0,t)=v(1,t)=0,\qquad v(x,0)=g(x).
+ \label{eq:burgers}
+\end{equation}
+The term $v\,v_x$ represents nonlinear transport. Dropping it gives a diffusion equation analogous to Equation~\eqref{eq:heat}. Burgers' equation is also related to the heat equation through the Cole--Hopf substitution $v=-2\nu\,\phi_x/\phi$, where appropriate positive solutions $\phi$ of $\phi_t=\nu\phi_{xx}$ can be used to construct Burgers' solutions \citep{hopf1950,cole1951}. This relationship motivates the project but is not required for generating the training data.
+
+For each equation, define the solution operator at time $T$ by
+\begin{equation}
+ \mathcal G_T^{\mathrm H}: f\mapsto u(\cdot,T),\qquad
+ \mathcal G_T^{\mathrm B}: g\mapsto v(\cdot,T).
+ \label{eq:operators}
+\end{equation}
+Separate FNO models will approximate $\mathcal G_T^{\mathrm H}$ and $\mathcal G_T^{\mathrm B}$ under comparable data and evaluation protocols.
+
+\subsection{Reference solutions and numerical algorithms}
+Initial conditions for both PDEs will be drawn from finite sine series,
+\begin{equation}
+ h(x)=\sum_{k=1}^{5}a_k\sin(k\pi x),\qquad a_k\sim\mathrm{Uniform}[-0.5,0.5].
+ \label{eq:init}
+\end{equation}
+These satisfy the imposed zero endpoint values. For the heat equation, separation of variables gives the \emph{exact} reference solution
+\begin{equation}
+ u(x,T)=\sum_{k=1}^{5}a_k\exp[-\alpha(k\pi)^2T]\sin(k\pi x),
+ \label{eq:heatexact}
+\end{equation}
+which explicitly shows faster decay of higher frequencies. A forward-time, centered-space finite-difference solver will additionally be implemented for learning and checked against Equation~\eqref{eq:heatexact}. Its interior update is $u_i^{n+1}=u_i^n+r(u_{i+1}^n-2u_i^n+u_{i-1}^n)$ with $r=\alpha\Delta t/(\Delta x)^2\leq 1/2$ \citep{leveque2007finite}.
+
+For Burgers' equation, we will rewrite the transport term in conservative form: $v_t+[v^2/2]_x=\nu v_{xx}$. A conservative numerical update will use a local Lax--Friedrichs (Rusanov) numerical flux for transport and centered differences for diffusion. For numerical flux $F(v)=v^2/2$, the interface flux is
+\begin{equation}
+ \widehat F_{i+1/2}=
+ \frac{F(v_i)+F(v_{i+1})}{2}
+ -\frac{\max(|v_i|,|v_{i+1}|)}{2}(v_{i+1}-v_i),
+ \label{eq:flux}
+\end{equation}
+leading to the explicit interior update
+\begin{equation}
+ v_i^{n+1}=v_i^n-\frac{\Delta t}{\Delta x}
+ (\widehat F_{i+1/2}^n-\widehat F_{i-1/2}^n)
+ +\frac{\nu\Delta t}{\Delta x^2}
+ (v_{i+1}^n-2v_i^n+v_{i-1}^n).
+ \label{eq:burgersscheme}
+\end{equation}
+Time steps will be chosen conservatively to control both transport and diffusion stability, and reference solutions will be checked for grid convergence before training. For example, computations on 257 and 513 spatial points will be compared; the 257-point solution can be subsampled to the 65-point learning grid. Numerical references will therefore be \emph{verified approximations}, not presented as exact Burgers' solutions.
+
+\subsection{FNO models, baselines, and training}
+Each input function will be represented by 65 sampled values on $x_i=i/64$, $i=0,\ldots,64$, and the target is the corresponding profile at $T=0.2$. A compact one-dimensional FNO will use an input lifting layer, three Fourier layers (initially 12 Fourier modes and width 32), and an output projection \citep{li2021fourier}. Position coordinates will accompany the input. Because the boundary conditions are nonperiodic while discrete Fourier transforms use periodic representations, we will test spatial padding and explicitly enforce zero predicted endpoint values; boundary and interior errors will be inspected separately \citep{neuraloperatorguide}. Separate models will be trained for heat and Burgers' equations.
+
+Training will use mean squared error, the Adam optimizer (initial learning rate $10^{-3}$), mini-batches, and validation-based checkpoint selection. A small MLP mapping the same 65 input values to 65 output values will be trained independently for each PDE as a learned baseline. Both architectures will use identical train/validation/test partitions for a given equation. The finite-difference and conservative solvers provide \emph{reference calculations}, not learned baselines. No performance superiority is assumed in advance.
+
+\begin{figure}[t]
+\centering
+\setlength{\fboxsep}{5pt}
+\fbox{\parbox{0.255\linewidth}{\centering Random initial\\profiles}}
+\ $\longrightarrow$\ 
+\fbox{\parbox{0.255\linewidth}{\centering Heat: exact series\\Burgers: grid-refined solver}}
+\ $\longrightarrow$\ 
+\fbox{\parbox{0.255\linewidth}{\centering Train FNO/MLP;\\test held-out profiles}}
+\caption{Project workflow. Each PDE has its own reference-solution dataset, trained models, and error analysis.}
+\label{fig:workflow}
+\end{figure}
+
+\section{Dataset and Experimental Setup}
+The datasets will be \textbf{synthetically generated in Python for this project}; no external experimental dataset is assumed. For each PDE, we plan 1,000 randomly generated initial-condition/solution pairs, with 800 training examples, 100 validation examples, and 100 held-out test examples. Entire functions, not individual spatial sample points, will be split to avoid leakage. Random seeds and numerical parameters will be recorded. Inputs and targets will be represented on the same 65-point grid, and any scaling will be determined using the training set only. Additional data augmentation, if needed, will be performed by generating new independently sampled sine coefficients rather than applying image transformations.
+
+The heat labels will be computed using Equation~\eqref{eq:heatexact}. The Burgers labels will be generated with Equation~\eqref{eq:burgersscheme} on a finer spatial grid and verified by refinement. The primary experiment uses the five sine modes in Equation~\eqref{eq:init}; a separate \emph{out-of-distribution} test will retain some low modes while adding modes 6--8. This test will help identify whether each network has learned the expected smoothing and transport behavior or merely interpolates familiar profiles. We will additionally compare training subsets containing approximately 200, 500, and 800 profiles.
+
+\section{Expected Results and Evaluation Plan}
+We hypothesize that both FNOs will approximate solution profiles for unseen initial conditions from the training distribution. The heat equation should provide a more interpretable starting point because individual sine modes evolve independently; Burgers' nonlinear transport couples modes and may produce sharper gradients, making its solution operator harder to learn at the chosen resolution. However, the difference in predictive accuracy is an \emph{empirical question}, not a result known before running the experiments.
+
+For each profile, the primary metric will be relative discrete $L^2$ error,
+\begin{equation}
+ E_{\mathrm{rel}}=\frac{\|\widehat{\boldsymbol w}-\boldsymbol w\|_2}
+ {\|\boldsymbol w\|_2+10^{-8}},\qquad
+ \mathrm{MSE}=\frac{1}{65}\sum_{i=0}^{64}(\widehat w_i-w_i)^2,
+ \label{eq:metrics}
+\end{equation}
+where $\boldsymbol w$ denotes the appropriate reference profile. We will report mean and median relative errors, mean squared errors, and visual comparisons of several predicted versus reference curves. Because very small target norms can make relative errors misleading, absolute errors and target magnitudes will be shown for such cases. The heat finite-difference method will be evaluated separately against the exact series solution, while the Burgers solver will be evaluated using grid refinement. Model training time and prediction time will be recorded without assuming a speed advantage over conventional solvers.
+
+The evaluation will compare FNO versus MLP \emph{within each PDE}, then examine how errors change between heat and Burgers' problems, under reduced training data, and on higher-frequency inputs. Success means producing a reproducible end-to-end modeling pipeline and an evidence-based explanation of what the FNO learns, where it generalizes, and where it fails. If implementation time is limited, the essential deliverable is the full heat experiment plus the Burgers' reference solver and a smaller Burgers' training/evaluation run.
+
+\section{Relationship to Navier--Stokes and Future Work}
+Burgers' nonlinear transport and viscous diffusion resemble terms in the incompressible Navier--Stokes momentum equations,
+\begin{equation}
+ \boldsymbol u_t+(\boldsymbol u\cdot\nabla)\boldsymbol u
+ =-\rho^{-1}\nabla p+\nu\Delta\boldsymbol u,
+ \qquad \nabla\cdot\boldsymbol u=0.
+ \label{eq:ns}
+\end{equation}
+The analogy is useful but not an equivalence: Navier--Stokes also involves pressure, vector velocity, and incompressibility. In strictly one-dimensional incompressible flow, $u_x=0$, so the velocity is spatially uniform, making it a poor nontrivial 1-D benchmark. A future extension could therefore consider \emph{one-dimensional compressible} Navier--Stokes (a coupled system) or \emph{two-dimensional incompressible} Navier--Stokes. Neither is required for the present project.
+
+\section{Timeline}
+\begin{table}[H]
+\centering
+\caption{Seven-week plan following the course proposal's suggested structure.}
+\begin{tabular}{@{}p{0.16\linewidth}p{0.76\linewidth}@{}}
+\toprule
+\textbf{Weeks} & \textbf{Tasks and deliverables}\\
+\midrule
+1--2 & Derive the heat series solution; implement and verify the heat and Burgers' numerical solvers; generate and split datasets.\\
+3--4 & Train heat FNO and MLP; train initial Burgers' FNO and MLP; inspect validation losses and predicted curves.\\
+5--6 & Compare errors, boundary behavior, higher-frequency tests, and 200/500/800-example training subsets; refine numerical verification.\\
+7 & Consolidate figures and tables, document limitations and reproducibility, prepare final report and presentation.\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Team Contributions}
+The following division of work is \emph{proposed} and will be confirmed by the four members before submission. All members will participate in interpreting results and reviewing the final report.
+\begin{table}[h]
+\centering
+\caption{Proposed division of responsibilities among the four team members.}
+\begin{tabular}{@{}p{0.27\linewidth}p{0.25\linewidth}p{0.40\linewidth}@{}}
+\toprule
+\textbf{Member} & \textbf{Primary role} & \textbf{Planned contributions}\\
+\midrule
+William Leland & Mathematical and numerical modeling & Exact heat-equation solution, finite-difference solver, convergence checks.\\
+Alexander Zabierowski & Fourier neural operator & FNO implementation, model training, hyperparameter tuning.\\
+Brandon Choi & Dataset and baseline & Data generation, preprocessing, train/test partitions, MLP baseline.\\
+Andrew Deutsch & Evaluation and presentation & Error analysis, stress tests, visualizations, report and presentation integration.\\
+\bottomrule
+\end{tabular}
+\label{tab:roles}
+\end{table}
+
+\begin{thebibliography}{6}
+\bibitem[Li et~al.(2021)]{li2021fourier}
+Li, Z., Kovachki, N., Azizzadenesheli, K., Liu, B., Bhattacharya, K.,
+Stuart, A., and Anandkumar, A. (2021).
+Fourier neural operator for parametric partial differential equations.
+\emph{International Conference on Learning Representations}.
+\url{https://openreview.net/forum?id=c8P9NQVtmnO}.
+
+\bibitem[Kovachki et~al.(2023)]{kovachki2023neural}
+Kovachki, N., Li, Z., Liu, B., Azizzadenesheli, K., Bhattacharya, K.,
+Stuart, A., and Anandkumar, A. (2023).
+Neural operator: Learning maps between function spaces with applications to PDEs.
+\emph{Journal of Machine Learning Research}, 24(89), 1--97.
+
+\bibitem[LeVeque(2007)]{leveque2007finite}
+LeVeque, R. J. (2007).
+\emph{Finite Difference Methods for Ordinary and Partial Differential Equations}.
+Society for Industrial and Applied Mathematics.
+\url{https://doi.org/10.1137/1.9780898717839}.
+
+\bibitem[Hopf(1950)]{hopf1950}
+Hopf, E. (1950).
+The partial differential equation $u_t+uu_x=\mu u_{xx}$.
+\emph{Communications on Pure and Applied Mathematics}, 3(3), 201--230.
+\url{https://doi.org/10.1002/cpa.3160030302}.
+
+\bibitem[Cole(1951)]{cole1951}
+Cole, J. D. (1951).
+On a quasi-linear parabolic equation occurring in aerodynamics.
+\emph{Quarterly of Applied Mathematics}, 9(3), 225--236.
+\url{https://doi.org/10.1090/qam/42889}.
+
+\bibitem[NeuralOperator Developers(2026)]{neuraloperatorguide}
+NeuralOperator Developers (2026).
+Fourier neural operators: Theory guide.
+\url{https://neuraloperator.github.io/dev/theory_guide/fno.html}.
+\end{thebibliography}
+\end{document}
